@@ -162,3 +162,36 @@
     
     (ok shares-to-mint))
 )
+
+(define-public (swap-exact-x-for-y (pool-id uint) (token-x <ft-trait>) (token-y <ft-trait>) (amount-in uint) (min-amount-out uint))
+    (let (
+        (pool (unwrap! (get-pool-details pool-id) ERR-POOL-NOT-FOUND))
+        (output-amount (unwrap! (calculate-swap-output pool-id amount-in true) ERR-POOL-NOT-FOUND))
+        (valid-tokens (and 
+            (is-eq (contract-of token-x) (get token-x pool))
+            (is-eq (contract-of token-y) (get token-y pool))
+        ))
+    )
+    ;; Authorization checks
+    (asserts! valid-tokens ERR-NOT-AUTHORIZED)
+    (asserts! (>= output-amount min-amount-out) ERR-SLIPPAGE-TOO-HIGH)
+    (asserts! (> amount-in u0) ERR-INVALID-AMOUNT)
+    
+    ;; Transfer input token to pool
+    (try! (transfer-token token-x amount-in tx-sender (as-contract tx-sender)))
+    
+    ;; Transfer output token to user
+    (try! (transfer-token token-y output-amount (as-contract tx-sender) tx-sender))
+    
+    ;; Update pool state
+    (map-set liquidity-pools
+        { pool-id: pool-id }
+        (merge pool {
+            reserve-x: (+ (get reserve-x pool) amount-in),
+            reserve-y: (- (get reserve-y pool) output-amount),
+            last-block-height: block-height
+        })
+    )
+    
+    (ok output-amount))
+)
