@@ -37,3 +37,32 @@
     { pool-id: uint, provider: principal }
     { shares: uint }
 )
+
+;; SIP-010 Interface
+(define-trait ft-trait
+    (
+        (transfer (uint principal principal) (response bool uint))
+        (get-balance (principal) (response uint uint))
+        (get-decimals () (response uint uint))
+    )
+)
+
+;; Private helper functions
+(define-private (mul-down (a uint) (b uint))
+    (/ (* a b) PRECISION)
+)
+
+(define-private (div-down (a uint) (b uint))
+    (if (is-eq b u0)
+        u0
+        (/ (* a PRECISION) b)
+    )
+)
+
+(define-private (min (a uint) (b uint))
+    (if (<= a b) a b)
+)
+
+(define-private (transfer-token (token <ft-trait>) (amount uint) (sender principal) (recipient principal))
+    (contract-call? token transfer amount sender recipient)
+)
