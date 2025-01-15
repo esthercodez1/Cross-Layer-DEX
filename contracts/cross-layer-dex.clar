@@ -235,3 +235,21 @@
     
     (ok { amount-x: amount-x, amount-y: amount-y }))
 )
+
+;; Administrative functions
+(define-public (update-fee-rate (pool-id uint) (new-fee-rate uint))
+    (let (
+        (pool (unwrap! (get-pool-details pool-id) ERR-POOL-NOT-FOUND))
+    )
+    (asserts! (is-eq tx-sender CONTRACT-OWNER) ERR-NOT-AUTHORIZED)
+    (asserts! (< new-fee-rate PRECISION) ERR-INVALID-AMOUNT)
+    
+    (map-set liquidity-pools
+        { pool-id: pool-id }
+        (merge pool {
+            fee-rate: new-fee-rate,
+            last-block-height: block-height
+        })
+    )
+    (ok true))
+)
