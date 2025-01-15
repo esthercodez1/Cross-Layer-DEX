@@ -95,3 +95,28 @@
                 (+ input-reserve fee-adjusted-input))))
         (err ERR-POOL-NOT-FOUND))
 )
+
+;; Public functions
+(define-public (create-pool (token-x <ft-trait>) (token-y <ft-trait>) (fee-rate uint))
+    (let (
+        (pool-id (+ (var-get last-pool-id) u1))
+    )
+    (asserts! (is-eq tx-sender CONTRACT-OWNER) ERR-NOT-AUTHORIZED)
+    (asserts! (< fee-rate PRECISION) ERR-INVALID-AMOUNT)
+    (asserts! (not (is-eq (contract-of token-x) (contract-of token-y))) ERR-INVALID-AMOUNT)
+    
+    (map-set liquidity-pools
+        { pool-id: pool-id }
+        {
+            token-x: (contract-of token-x),
+            token-y: (contract-of token-y),
+            total-shares: u0,
+            reserve-x: u0,
+            reserve-y: u0,
+            fee-rate: fee-rate,
+            last-block-height: block-height
+        }
+    )
+    (var-set last-pool-id pool-id)
+    (ok pool-id))
+)
