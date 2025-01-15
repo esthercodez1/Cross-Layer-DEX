@@ -14,6 +14,7 @@
 (define-constant ERR-SLIPPAGE-TOO-HIGH (err u104))
 (define-constant ERR-ZERO-LIQUIDITY (err u105))
 (define-constant ERR-DIVIDE-BY-ZERO (err u106))
+(define-constant ERR-CONCURRENT-UPDATE (err u107))
 (define-constant PRECISION u1000000) ;; 6 decimal places for price calculations
 
 ;; Data Variables
@@ -66,6 +67,24 @@
 (define-private (transfer-token (token <ft-trait>) (amount uint) (sender principal) (recipient principal))
     (contract-call? token transfer amount sender recipient)
 )
+
+(define-private (validate-pool-state (pool { 
+    token-x: principal,
+    token-y: principal,
+    total-shares: uint,
+    reserve-x: uint,
+    reserve-y: uint,
+    fee-rate: uint,
+    last-block-height: uint 
+}))
+    (begin
+        (asserts! (> (get total-shares pool) u0) ERR-ZERO-LIQUIDITY)
+        (asserts! (>= (get reserve-x pool) u0) ERR-INVALID-AMOUNT)
+        (asserts! (>= (get reserve-y pool) u0) ERR-INVALID-AMOUNT)
+        (ok pool)
+    )
+)
+
 
 ;; Read-only functions
 (define-read-only (get-pool-details (pool-id uint))
@@ -199,17 +218,17 @@
 (define-public (remove-liquidity (pool-id uint) (token-x <ft-trait>) (token-y <ft-trait>) (shares uint) (min-amount-x uint) (min-amount-y uint))
     (let (
         (pool (unwrap! (get-pool-details pool-id) ERR-POOL-NOT-FOUND))
+        (validated-pool (unwrap! (validate-pool-state pool) ERR-ZERO-LIQUIDITY))
         (provider-shares (get shares (get-provider-shares pool-id tx-sender)))
-        (amount-x (div-down (* shares (get reserve-x pool)) (get total-shares pool)))
-        (amount-y (div-down (* shares (get reserve-y pool)) (get total-shares pool)))
+        (amount-x (div-down (* shares (get reserve-x validated-pool)) (get total-shares validated-pool)))
+        (amount-y (div-down (* shares (get reserve-y validated-pool)) (get total-shares validated-pool)))
     )
     (asserts! (and 
-        (is-eq (contract-of token-x) (get token-x pool))
-        (is-eq (contract-of token-y) (get token-y pool))
+        (is-eq (contract-of token-x) (get token-x validated-pool))
+        (is-eq (contract-of token-y) (get token-y validated-pool))
     ) ERR-NOT-AUTHORIZED)
     (asserts! (>= provider-shares shares) ERR-INSUFFICIENT-BALANCE)
     (asserts! (> shares u0) ERR-INVALID-AMOUNT)
-    (asserts! (> (get total-shares pool) u0) ERR-ZERO-LIQUIDITY)
     (asserts! (and (>= amount-x min-amount-x) (>= amount-y min-amount-y)) ERR-SLIPPAGE-TOO-HIGH)
     
     ;; Transfer tokens to user
@@ -219,10 +238,10 @@
     ;; Update pool state
     (map-set liquidity-pools
         { pool-id: pool-id }
-        (merge pool {
-            total-shares: (- (get total-shares pool) shares),
-            reserve-x: (- (get reserve-x pool) amount-x),
-            reserve-y: (- (get reserve-y pool) amount-y),
+        (merge validated-pool {
+            total-shares: (- (get total-shares validated-pool) shares),
+            reserve-x: (- (get reserve-x validated-pool) amount-x),
+            reserve-y: (- (get reserve-y validated-pool) amount-y),
             last-block-height: block-height
         })
     )
@@ -240,15 +259,19 @@
 (define-public (update-fee-rate (pool-id uint) (new-fee-rate uint))
     (let (
         (pool (unwrap! (get-pool-details pool-id) ERR-POOL-NOT-FOUND))
+        (validated-pool (unwrap! (validate-pool-state pool) ERR-ZERO-LIQUIDITY))
+        (current-block block-height)
     )
     (asserts! (is-eq tx-sender CONTRACT-OWNER) ERR-NOT-AUTHORIZED)
     (asserts! (< new-fee-rate PRECISION) ERR-INVALID-AMOUNT)
+    (asserts! (is-eq (get last-block-height validated-pool) 
+                     (- current-block u1)) ERR-CONCURRENT-UPDATE)
     
     (map-set liquidity-pools
         { pool-id: pool-id }
-        (merge pool {
+        (merge validated-pool {
             fee-rate: new-fee-rate,
-            last-block-height: block-height
+            last-block-height: current-block
         })
     )
     (ok true))
