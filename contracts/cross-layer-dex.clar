@@ -66,3 +66,32 @@
 (define-private (transfer-token (token <ft-trait>) (amount uint) (sender principal) (recipient principal))
     (contract-call? token transfer amount sender recipient)
 )
+
+;; Read-only functions
+(define-read-only (get-pool-details (pool-id uint))
+    (match (map-get? liquidity-pools { pool-id: pool-id })
+        pool-data (ok pool-data)
+        (err ERR-POOL-NOT-FOUND))
+)
+
+(define-read-only (get-provider-shares (pool-id uint) (provider principal))
+    (default-to
+        { shares: u0 }
+        (map-get? liquidity-providers { pool-id: pool-id, provider: provider }))
+)
+
+(define-read-only (calculate-swap-output (pool-id uint) (input-amount uint) (is-x-to-y bool))
+    (match (map-get? liquidity-pools { pool-id: pool-id })
+        pool-data 
+            (let (
+                (input-reserve (if is-x-to-y (get reserve-x pool-data) (get reserve-y pool-data)))
+                (output-reserve (if is-x-to-y (get reserve-y pool-data) (get reserve-x pool-data)))
+                (fee-adjusted-input (mul-down input-amount (- PRECISION (get fee-rate pool-data))))
+            )
+            (asserts! (> input-reserve u0) (err ERR-ZERO-LIQUIDITY))
+            (asserts! (> output-reserve u0) (err ERR-ZERO-LIQUIDITY))
+            (ok (div-down
+                (mul-down fee-adjusted-input output-reserve)
+                (+ input-reserve fee-adjusted-input))))
+        (err ERR-POOL-NOT-FOUND))
+)
