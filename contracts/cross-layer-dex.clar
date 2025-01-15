@@ -15,3 +15,25 @@
 (define-constant ERR-ZERO-LIQUIDITY (err u105))
 (define-constant ERR-DIVIDE-BY-ZERO (err u106))
 (define-constant PRECISION u1000000) ;; 6 decimal places for price calculations
+
+;; Data Variables
+(define-data-var last-pool-id uint u0)
+
+;; Data Maps
+(define-map liquidity-pools
+    { pool-id: uint }
+    {
+        token-x: principal,
+        token-y: principal,
+        total-shares: uint,
+        reserve-x: uint,
+        reserve-y: uint,
+        fee-rate: uint,
+        last-block-height: uint
+    }
+)
+
+(define-map liquidity-providers
+    { pool-id: uint, provider: principal }
+    { shares: uint }
+)
