@@ -195,3 +195,43 @@
     
     (ok output-amount))
 )
+
+(define-public (remove-liquidity (pool-id uint) (token-x <ft-trait>) (token-y <ft-trait>) (shares uint) (min-amount-x uint) (min-amount-y uint))
+    (let (
+        (pool (unwrap! (get-pool-details pool-id) ERR-POOL-NOT-FOUND))
+        (provider-shares (get shares (get-provider-shares pool-id tx-sender)))
+        (amount-x (div-down (* shares (get reserve-x pool)) (get total-shares pool)))
+        (amount-y (div-down (* shares (get reserve-y pool)) (get total-shares pool)))
+    )
+    (asserts! (and 
+        (is-eq (contract-of token-x) (get token-x pool))
+        (is-eq (contract-of token-y) (get token-y pool))
+    ) ERR-NOT-AUTHORIZED)
+    (asserts! (>= provider-shares shares) ERR-INSUFFICIENT-BALANCE)
+    (asserts! (> shares u0) ERR-INVALID-AMOUNT)
+    (asserts! (> (get total-shares pool) u0) ERR-ZERO-LIQUIDITY)
+    (asserts! (and (>= amount-x min-amount-x) (>= amount-y min-amount-y)) ERR-SLIPPAGE-TOO-HIGH)
+    
+    ;; Transfer tokens to user
+    (try! (transfer-token token-x amount-x (as-contract tx-sender) tx-sender))
+    (try! (transfer-token token-y amount-y (as-contract tx-sender) tx-sender))
+    
+    ;; Update pool state
+    (map-set liquidity-pools
+        { pool-id: pool-id }
+        (merge pool {
+            total-shares: (- (get total-shares pool) shares),
+            reserve-x: (- (get reserve-x pool) amount-x),
+            reserve-y: (- (get reserve-y pool) amount-y),
+            last-block-height: block-height
+        })
+    )
+    
+    ;; Update provider shares
+    (map-set liquidity-providers
+        { pool-id: pool-id, provider: tx-sender }
+        { shares: (- provider-shares shares) }
+    )
+    
+    (ok { amount-x: amount-x, amount-y: amount-y }))
+)
